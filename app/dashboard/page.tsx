@@ -43,7 +43,8 @@ export default function Dashboard() {
       description: "Automatically match and reconcile all bank transactions in Xero using AI",
       status: "pending",
       icon: <CheckCircle className="h-6 w-6" />,
-      actionLabel: "Start Reconciliation"
+      actionLabel: "Start Reconciliation",
+      externalLink: "/reconcile"
     },
     {
       id: 3,
