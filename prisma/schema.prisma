@@ -1,0 +1,55 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Company/Organization (Client)
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  xeroToken XeroToken?
+
+  @@map("companies")
+}
+
+// Xero OAuth Token Storage
+// This is the ONLY data we store - everything else is fetched from Xero on-demand
+model XeroToken {
+  id            Int       @id @default(autoincrement())
+  companyId     Int       @unique
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // OAuth credentials
+  clientId      String    @map("client_id")
+  clientSecret  String    @map("client_secret")
+
+  // OAuth tokens (nullable until first connection)
+  accessToken   String?   @map("access_token") @db.Text
+  refreshToken  String?   @map("refresh_token") @db.Text
+
+  // Xero tenant info
+  tenantId      String?   @map("tenant_id")
+  tenantName    String?   @map("tenant_name")
+  tenantType    String?   @map("tenant_type")
+
+  // Token metadata
+  scope         String    @default("payroll.employees payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access")
+  expiresAt     DateTime? @map("expires_at")
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("xero_tokens")
+}
