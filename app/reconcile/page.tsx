@@ -12,7 +12,13 @@ import {
   X,
   RefreshCw,
   ArrowLeft,
-  Building2
+  Building2,
+  Users,
+  Info,
+  ExternalLink,
+  Filter,
+  Search,
+  DollarSign
 } from "lucide-react"
 import AdaptiveLayout from "@/components/adaptive-layout"
 
@@ -79,31 +85,62 @@ export default function ReconcilePage() {
   const [loadingAI, setLoadingAI] = useState<string | null>(null)
   const [reconcilingTx, setReconcilingTx] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [notConnected, setNotConnected] = useState(false)
+  const [apiNote, setApiNote] = useState<string | null>(null)
 
-  const companyId = typeof window !== "undefined" ? localStorage.getItem("companyid") : null
+  // Filter state
+  const [activeFilter, setActiveFilter] = useState<"all" | "wage">("all")
+  const [showFilterPopup, setShowFilterPopup] = useState(false)
+  const [filterText, setFilterText] = useState("")
+  const [appliedFilterText, setAppliedFilterText] = useState("")
+  const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([])
+  const [showAllTransactions, setShowAllTransactions] = useState(false)
 
   useEffect(() => {
-    if (companyId) {
-      fetchBankAccounts()
-    } else {
-      setError("No company ID found. Please connect to Xero first.")
-      setIsLoadingAccounts(false)
+    fetchBankAccounts()
+  }, [])
+
+  // Apply filters when transactions or filter settings change
+  useEffect(() => {
+    let result = [...transactions]
+
+    // Apply wage filter (only spend transactions - negative amounts)
+    if (activeFilter === "wage") {
+      result = result.filter(tx => tx.total < 0)
     }
-  }, [companyId])
+
+    // Apply text search filter
+    if (appliedFilterText) {
+      const searchLower = appliedFilterText.toLowerCase()
+      result = result.filter(tx => {
+        const description = tx.lineItems[0]?.description?.toLowerCase() || ""
+        const reference = tx.reference?.toLowerCase() || ""
+        const contactName = tx.contact?.name?.toLowerCase() || ""
+        return description.includes(searchLower) ||
+               reference.includes(searchLower) ||
+               contactName.includes(searchLower)
+      })
+    }
+
+    setFilteredTransactions(result)
+  }, [transactions, activeFilter, appliedFilterText])
 
   const fetchBankAccounts = async () => {
     try {
       setIsLoadingAccounts(true)
       setError(null)
+      setNotConnected(false)
 
-      const response = await fetch(`/api/xero/bank-accounts?companyId=${companyId}`)
+      const response = await fetch(`/api/xero/bank-accounts`)
+      const data = await response.json()
 
       if (!response.ok) {
-        const data = await response.json()
+        if (data.notConnected) {
+          setNotConnected(true)
+        }
         throw new Error(data.error || "Failed to fetch bank accounts")
       }
 
-      const data = await response.json()
       setBankAccounts(data.bankAccounts)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch bank accounts")
@@ -112,15 +149,17 @@ export default function ReconcilePage() {
     }
   }
 
-  const fetchTransactions = async (accountId: string) => {
+  const fetchTransactions = async (accountId: string, includeAll: boolean = false) => {
     try {
       setIsLoadingTransactions(true)
       setError(null)
       setTransactions([])
+      setApiNote(null)
 
-      const response = await fetch(
-        `/api/xero/bank-transactions?companyId=${companyId}&accountId=${accountId}`
-      )
+      const url = includeAll
+        ? `/api/xero/bank-transactions?accountId=${accountId}&includeAll=true`
+        : `/api/xero/bank-transactions?accountId=${accountId}`
+      const response = await fetch(url)
 
       if (!response.ok) {
         const data = await response.json()
@@ -129,6 +168,9 @@ export default function ReconcilePage() {
 
       const data = await response.json()
       setTransactions(data.transactions)
+      if (data.note) {
+        setApiNote(data.note)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch transactions")
     } finally {
@@ -140,7 +182,30 @@ export default function ReconcilePage() {
     setSelectedAccount(account)
     setExpandedTx(null)
     setAiSuggestions({})
-    fetchTransactions(account.accountId)
+    setActiveFilter("all")
+    setFilterText("")
+    setAppliedFilterText("")
+    fetchTransactions(account.accountId, showAllTransactions)
+  }
+
+  const handleToggleShowAll = () => {
+    const newValue = !showAllTransactions
+    setShowAllTransactions(newValue)
+    if (selectedAccount) {
+      fetchTransactions(selectedAccount.accountId, newValue)
+    }
+  }
+
+  const handleApplyFilter = () => {
+    setAppliedFilterText(filterText)
+    setShowFilterPopup(false)
+  }
+
+  const handleClearFilters = () => {
+    setActiveFilter("all")
+    setFilterText("")
+    setAppliedFilterText("")
+    setShowFilterPopup(false)
   }
 
   const getAISuggestion = async (transaction: Transaction) => {
@@ -151,7 +216,6 @@ export default function ReconcilePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyId,
           statementLine: {
             date: transaction.date,
             description: transaction.lineItems[0]?.description || transaction.reference,
@@ -189,7 +253,6 @@ export default function ReconcilePage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyId,
           transactionId,
           action: "approve",
         }),
@@ -204,7 +267,7 @@ export default function ReconcilePage() {
       setTransactions((prev) =>
         prev.filter((tx) => tx.transactionId !== transactionId)
       )
-      setSuccessMessage("Transaction reconciled successfully")
+      setSuccessMessage("Transaction marked as reconciled")
       setTimeout(() => setSuccessMessage(null), 3000)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reconcile transaction")
@@ -269,17 +332,56 @@ export default function ReconcilePage() {
               Dashboard
             </a>
           </div>
-          <h1 className="text-2xl font-semibold text-gray-900">Bank Reconciliation</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Coded Bank Transactions</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Review and reconcile your bank transactions with AI assistance
+            Review coded transactions that need to be matched to bank statement lines
           </p>
+        </div>
+
+        {/* Info Banner */}
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
+          <div className="flex gap-3">
+            <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-medium mb-1">What this shows</p>
+              <p className="mb-2">
+                This displays <strong>coded bank transactions</strong> from Xero. The raw bank feed items
+                (statement lines from your bank connection) are not available via the Xero API.
+              </p>
+              <ul className="list-disc list-inside mb-2 space-y-1 text-xs">
+                <li><strong>Unreconciled Only:</strong> Coded transactions waiting to be matched to bank statement lines</li>
+                <li><strong>Show All Recent:</strong> All coded transactions from the last 6 months (158 transactions)</li>
+              </ul>
+              <a
+                href="https://go.xero.com/Bank/BankAccounts.aspx"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Open Xero Bank Reconciliation (for bank feed items)
+              </a>
+            </div>
+          </div>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md flex items-center space-x-2">
-            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-            <span className="text-red-700">{error}</span>
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+              <span className="text-red-700">{error}</span>
+            </div>
+            {notConnected && (
+              <div className="mt-3">
+                <a
+                  href="/xero"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Connect to Xero
+                </a>
+              </div>
+            )}
           </div>
         )}
 
@@ -329,20 +431,147 @@ export default function ReconcilePage() {
           {/* Transactions List */}
           <div className="lg:col-span-3">
             <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-              <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                <h2 className="text-sm font-medium text-gray-900">
-                  {selectedAccount
-                    ? `Unreconciled Transactions - ${selectedAccount.name}`
-                    : "Select a bank account"}
-                </h2>
-                {selectedAccount && (
-                  <button
-                    onClick={() => fetchTransactions(selectedAccount.accountId)}
-                    className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    Refresh
-                  </button>
+              <div className="px-4 py-3 border-b border-gray-200">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-medium text-gray-900">
+                    {selectedAccount
+                      ? showAllTransactions
+                        ? `All Recent Transactions - ${selectedAccount.name}`
+                        : `Unreconciled Transactions - ${selectedAccount.name}`
+                      : "Select a bank account"}
+                  </h2>
+                  {selectedAccount && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleToggleShowAll}
+                        className={`inline-flex items-center gap-1 text-sm px-3 py-1 rounded-md transition-colors ${
+                          showAllTransactions
+                            ? "bg-blue-100 text-blue-700 border border-blue-300"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      >
+                        {showAllTransactions ? "Show Unreconciled Only" : "Show All Recent"}
+                      </button>
+                      <button
+                        onClick={() => fetchTransactions(selectedAccount.accountId, showAllTransactions)}
+                        className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Refresh
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Filter Buttons */}
+                {selectedAccount && transactions.length > 0 && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-500 mr-1">Filter:</span>
+                    <button
+                      onClick={() => setActiveFilter("all")}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                        activeFilter === "all"
+                          ? "bg-blue-100 text-blue-700 border border-blue-300"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent"
+                      }`}
+                    >
+                      All ({transactions.length})
+                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={() => {
+                          setActiveFilter("wage")
+                          setShowFilterPopup(true)
+                        }}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors inline-flex items-center gap-1 ${
+                          activeFilter === "wage"
+                            ? "bg-purple-100 text-purple-700 border border-purple-300"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent"
+                        }`}
+                      >
+                        <DollarSign className="h-3 w-3" />
+                        Wage
+                        {activeFilter === "wage" && (
+                          <span className="ml-1">({filteredTransactions.length})</span>
+                        )}
+                      </button>
+
+                      {/* Filter Popup */}
+                      {showFilterPopup && (
+                        <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 p-4 z-50">
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                              <Filter className="h-4 w-4" />
+                              Wage Filter Options
+                            </h3>
+                            <button
+                              onClick={() => setShowFilterPopup(false)}
+                              className="text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-700 mb-1">
+                                Description contains:
+                              </label>
+                              <input
+                                type="text"
+                                value={filterText}
+                                onChange={(e) => setFilterText(e.target.value)}
+                                placeholder="e.g., ANZ, wage, salary"
+                                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">
+                                Searches description, reference, and contact name
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-2">
+                              <button
+                                onClick={handleApplyFilter}
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 transition-colors"
+                              >
+                                <Search className="h-4 w-4" />
+                                Search
+                              </button>
+                              <button
+                                onClick={handleClearFilters}
+                                className="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Show active filter indicator */}
+                    {(activeFilter !== "all" || appliedFilterText) && (
+                      <div className="flex items-center gap-2 ml-2">
+                        {appliedFilterText && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-purple-50 text-purple-700 rounded-full border border-purple-200">
+                            "{appliedFilterText}"
+                            <button
+                              onClick={() => setAppliedFilterText("")}
+                              className="hover:text-purple-900"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        )}
+                        <button
+                          onClick={handleClearFilters}
+                          className="text-xs text-gray-500 hover:text-gray-700 underline"
+                        >
+                          Clear all filters
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -357,15 +586,46 @@ export default function ReconcilePage() {
                     <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
                     <span className="ml-2 text-gray-600">Loading transactions...</span>
                   </div>
-                ) : transactions.length === 0 ? (
+                ) : filteredTransactions.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
-                    <CheckCircle className="h-12 w-12 mx-auto mb-3 text-green-300" />
-                    <p className="font-medium text-green-600">All caught up!</p>
-                    <p className="text-sm">No unreconciled transactions</p>
+                    {transactions.length === 0 ? (
+                      <>
+                        <CheckCircle className="h-12 w-12 mx-auto mb-3 text-green-300" />
+                        <p className="font-medium text-green-600">All caught up!</p>
+                        <p className="text-sm mt-1">No unreconciled coded transactions found</p>
+                        {apiNote && (
+                          <p className="text-xs text-gray-400 mt-3 max-w-md mx-auto">{apiNote}</p>
+                        )}
+                        <a
+                          href="https://go.xero.com/Bank/BankAccounts.aspx"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 mt-4 text-sm text-blue-600 hover:text-blue-700"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          Check bank feed in Xero
+                        </a>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                        <p className="font-medium text-gray-600">No matching transactions</p>
+                        <p className="text-sm mt-1">Try adjusting your filter criteria</p>
+                        <button
+                          onClick={handleClearFilters}
+                          className="mt-3 text-sm text-blue-600 hover:text-blue-700 underline"
+                        >
+                          Clear all filters
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {transactions.map((tx) => (
+                    <p className="text-xs text-gray-500 mb-4">
+                      Showing {filteredTransactions.length} {activeFilter === "wage" ? "wage " : ""}transaction{filteredTransactions.length !== 1 ? 's' : ''}{appliedFilterText ? ` matching "${appliedFilterText}"` : ""} from the last 6 months
+                    </p>
+                    {filteredTransactions.map((tx) => (
                       <div
                         key={tx.transactionId}
                         className="border border-gray-200 rounded-lg overflow-hidden"
@@ -400,9 +660,20 @@ export default function ReconcilePage() {
                                 tx.total >= 0 ? "text-green-600" : "text-red-600"
                               }`}
                             >
-                              {formatCurrency(tx.total, tx.currencyCode)}
+                              {formatCurrency(Math.abs(tx.total), tx.currencyCode)}
                             </div>
-                            <div className="text-xs text-gray-500">{tx.type}</div>
+                            <div className="flex items-center justify-end gap-2 text-xs text-gray-500">
+                              <span>{tx.type}</span>
+                              {showAllTransactions && (
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  tx.isReconciled
+                                    ? "bg-green-100 text-green-700"
+                                    : "bg-yellow-100 text-yellow-700"
+                                }`}>
+                                  {tx.isReconciled ? "Reconciled" : "Unreconciled"}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
 
@@ -424,12 +695,14 @@ export default function ReconcilePage() {
                                       <span className="text-gray-900">
                                         {item.description || "No description"}
                                       </span>
-                                      <span className="text-gray-500 ml-2">
-                                        ({item.accountCode})
-                                      </span>
+                                      {item.accountCode && (
+                                        <span className="text-gray-500 ml-2">
+                                          ({item.accountCode})
+                                        </span>
+                                      )}
                                     </div>
                                     <span className="font-medium">
-                                      {formatCurrency(item.lineAmount, tx.currencyCode)}
+                                      {formatCurrency(Math.abs(item.lineAmount), tx.currencyCode)}
                                     </span>
                                   </div>
                                 ))}
@@ -478,7 +751,7 @@ export default function ReconcilePage() {
                             )}
 
                             {/* Action Buttons */}
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
                               <button
                                 onClick={() => handleReconcile(tx.transactionId)}
                                 disabled={reconcilingTx === tx.transactionId}
@@ -489,14 +762,34 @@ export default function ReconcilePage() {
                                 ) : (
                                   <Check className="h-4 w-4" />
                                 )}
-                                Approve & Reconcile
+                                Mark as Reconciled
                               </button>
+                              {tx.type === "SPEND" && Math.abs(tx.total) > 100 && (
+                                <button
+                                  onClick={() => {
+                                    window.location.href = `/payrun?transactionId=${tx.transactionId}&amount=${tx.total}&date=${encodeURIComponent(tx.date)}&reference=${encodeURIComponent(tx.reference || '')}`
+                                  }}
+                                  className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-md hover:bg-purple-700 transition-colors"
+                                >
+                                  <Users className="h-4 w-4" />
+                                  Create Payrun
+                                </button>
+                              )}
+                              <a
+                                href={`https://go.xero.com/Bank/ViewTransaction.aspx?bankTransactionID=${tx.transactionId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 px-4 py-2 text-blue-600 text-sm font-medium rounded-md hover:bg-blue-50 transition-colors"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                                View in Xero
+                              </a>
                               <button
                                 onClick={() => setExpandedTx(null)}
                                 className="inline-flex items-center gap-2 px-4 py-2 text-gray-600 text-sm font-medium rounded-md hover:bg-gray-100 transition-colors"
                               >
                                 <X className="h-4 w-4" />
-                                Skip
+                                Close
                               </button>
                             </div>
                           </div>

@@ -80,16 +80,25 @@ export default function Dashboard() {
     }
   ])
 
-  // Check Xero connection status
+  // Check Xero connection status from API
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const xeroConnected = localStorage.getItem("xerotoken") === "true"
-      if (xeroConnected) {
-        setTasks(prev => prev.map(task =>
-          task.id === 1 ? { ...task, status: "completed" as const } : task
-        ))
+    const checkXeroConnection = async () => {
+      try {
+        const response = await fetch('/api/xero/connections')
+        const data = await response.json()
+
+        // Check if we got a successful response with tenant info
+        if (response.ok && (data.success || data.tenant)) {
+          setTasks(prev => prev.map(task =>
+            task.id === 1 ? { ...task, status: "completed" as const } : task
+          ))
+        }
+      } catch (error) {
+        console.error('Error checking Xero connection:', error)
       }
     }
+
+    checkXeroConnection()
   }, [])
 
   const getStatusColor = (status: Task["status"]) => {

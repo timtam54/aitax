@@ -44,57 +44,34 @@ async function refreshAccessToken(token: any): Promise<string | null> {
 
 export async function GET() {
   try {
-    // Get token directly from database
     const token = await prisma.xeroToken.findUnique({
       where: { companyId: COMPANY_ID }
     })
 
-    if (!token) {
-      return NextResponse.json({
-        error: 'Not connected to Xero. Please connect to Xero first.',
-        notConnected: true
-      }, { status: 401 })
+    if (!token || !token.accessToken || !token.tenantId) {
+      return NextResponse.json({ error: 'Not connected to Xero' }, { status: 401 })
     }
 
-    if (!token.accessToken) {
-      return NextResponse.json({
-        error: 'Xero authorization incomplete. Please reconnect to Xero.',
-        notConnected: true
-      }, { status: 401 })
-    }
-
-    if (!token.tenantId) {
-      return NextResponse.json({
-        error: 'No Xero organization selected. Please reconnect to Xero.',
-        notConnected: true
-      }, { status: 401 })
-    }
-
-    // Check if token is expired or expiring soon
+    // Check if token is expired
     let accessToken = token.accessToken
     const isExpired = token.expiresAt && token.expiresAt < new Date(Date.now() + 60 * 1000)
 
     if (isExpired && token.refreshToken) {
-      console.log('Token expired, refreshing...')
       const newAccessToken = await refreshAccessToken(token)
       if (newAccessToken) {
         accessToken = newAccessToken
       } else {
-        return NextResponse.json({
-          error: 'Token expired and refresh failed. Please reconnect to Xero.',
-          notConnected: true
-        }, { status: 401 })
+        return NextResponse.json({ error: 'Token expired' }, { status: 401 })
       }
     }
 
-    const tenantId = token.tenantId
-
+    // Fetch employees from Xero Payroll AU API
     const response = await fetch(
-      'https://api.xero.com/api.xro/2.0/Accounts?where=Type=="BANK"',
+      'https://api.xero.com/payroll.xro/1.0/Employees',
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
-          'Xero-Tenant-Id': tenantId,
+          'Xero-Tenant-Id': token.tenantId,
           'Accept': 'application/json',
         }
       }
@@ -102,33 +79,33 @@ export async function GET() {
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('Xero API error:', errorText)
-      return NextResponse.json(
-        { error: 'Failed to fetch bank accounts from Xero' },
-        { status: response.status }
-      )
+      console.error('Xero Payroll API error:', errorText)
+      return NextResponse.json({ error: 'Failed to fetch employees' }, { status: response.status })
     }
 
     const data = await response.json()
 
-    // Return bank accounts with relevant fields
-    const bankAccounts = data.Accounts?.map((account: any) => ({
-      accountId: account.AccountID,
-      name: account.Name,
-      code: account.Code,
-      type: account.Type,
-      bankAccountNumber: account.BankAccountNumber,
-      bankAccountType: account.BankAccountType,
-      currencyCode: account.CurrencyCode,
-      status: account.Status,
+    // Map employees with their bank account details
+    const employees = data.Employees?.map((emp: any) => ({
+      employeeId: emp.EmployeeID,
+      firstName: emp.FirstName,
+      lastName: emp.LastName,
+      fullName: `${emp.FirstName} ${emp.LastName}`,
+      email: emp.Email,
+      status: emp.Status,
+      bankAccounts: emp.BankAccounts?.map((ba: any) => ({
+        accountName: ba.AccountName,
+        bsb: ba.BSB,
+        accountNumber: ba.AccountNumber,
+        remainder: ba.Remainder,
+        // Format for matching: BSB + Account Number
+        formattedAccount: `${ba.BSB} ${ba.AccountNumber}`.replace(/-/g, ''),
+      })) || [],
     })) || []
 
-    return NextResponse.json({ bankAccounts })
+    return NextResponse.json({ employees })
   } catch (error: any) {
-    console.error('Error fetching bank accounts:', error)
-    return NextResponse.json(
-      { error: error.message || 'Failed to fetch bank accounts' },
-      { status: 500 }
-    )
+    console.error('Error fetching employees:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

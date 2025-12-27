@@ -1,27 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getXeroClient, getActiveTenantId } from '@/lib/xero'
 
+const COMPANY_ID = 1
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
-    const companyId = searchParams.get('companyId')
     const accountId = searchParams.get('accountId')
+    const showRecent = searchParams.get('recent') === 'true' // Default to show all unreconciled
+    const includeAll = searchParams.get('includeAll') === 'true' // Include reconciled transactions too
 
-    if (!companyId) {
-      return NextResponse.json({ error: 'companyId is required' }, { status: 400 })
-    }
-
-    const companyIdNum = parseInt(companyId)
-    if (isNaN(companyIdNum)) {
-      return NextResponse.json({ error: 'Invalid companyId' }, { status: 400 })
-    }
-
-    const xero = await getXeroClient(companyIdNum)
+    const xero = await getXeroClient(COMPANY_ID)
     if (!xero) {
       return NextResponse.json({ error: 'Failed to get Xero client' }, { status: 401 })
     }
 
-    const tenantId = await getActiveTenantId(companyIdNum)
+    const tenantId = await getActiveTenantId(COMPANY_ID)
     if (!tenantId) {
       return NextResponse.json({ error: 'No active Xero tenant' }, { status: 401 })
     }
@@ -29,13 +23,42 @@ export async function GET(request: NextRequest) {
     const tokenSet = await xero.readTokenSet()
     const accessToken = tokenSet.access_token
 
+    // Helper to parse Xero's ASP.NET date format: /Date(1234567890000+0000)/
+    const parseXeroDate = (dateStr: string): string => {
+      if (!dateStr) return ''
+      const match = dateStr.match(/\/Date\((\d+)([+-]\d+)?\)\//)
+      if (match) {
+        const timestamp = parseInt(match[1])
+        return new Date(timestamp).toISOString()
+      }
+      return dateStr
+    }
+
+    // Calculate date filter - only show transactions from the last 6 months
+    const sixMonthsAgo = new Date()
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+    const dateFilter = sixMonthsAgo.toISOString().split('T')[0]
+
     // Build query for bank transactions
-    // Filter by account if provided, and get unreconciled transactions
-    let url = 'https://api.xero.com/api.xro/2.0/BankTransactions?order=Date DESC'
+    // Get AUTHORISED transactions that are NOT yet reconciled (unless includeAll is true)
+    // Status AUTHORISED = active transaction (not deleted)
+    // IsReconciled false = not yet matched to bank statement line
+    let whereClause = includeAll
+      ? `Status=="AUTHORISED"`
+      : `Status=="AUTHORISED" AND IsReconciled==false`
+
+    // Always filter by date when showing all transactions (to avoid too many results)
+    if (showRecent || includeAll) {
+      whereClause += ` AND Date>=DateTime(${sixMonthsAgo.getFullYear()},${sixMonthsAgo.getMonth() + 1},${sixMonthsAgo.getDate()})`
+    }
 
     if (accountId) {
-      url += `&where=BankAccount.AccountID=Guid("${accountId}")`
+      whereClause += ` AND BankAccount.AccountID=Guid("${accountId}")`
     }
+
+    const url = `https://api.xero.com/api.xro/2.0/BankTransactions?where=${encodeURIComponent(whereClause)}&order=Date DESC`
+
+    console.log('Fetching bank transactions:', url)
 
     const response = await fetch(url, {
       headers: {
@@ -60,7 +83,7 @@ export async function GET(request: NextRequest) {
     const transactions = data.BankTransactions?.map((tx: any) => ({
       transactionId: tx.BankTransactionID,
       type: tx.Type,
-      date: tx.Date,
+      date: parseXeroDate(tx.Date),
       reference: tx.Reference,
       status: tx.Status,
       isReconciled: tx.IsReconciled,
@@ -87,13 +110,20 @@ export async function GET(request: NextRequest) {
       currencyCode: tx.CurrencyCode,
     })) || []
 
-    // Filter to show unreconciled transactions
-    const unreconciledTransactions = transactions.filter((tx: any) => !tx.isReconciled)
+    // Count unreconciled for display
+    const unreconciledCount = transactions.filter((tx: any) => !tx.isReconciled).length
 
     return NextResponse.json({
-      transactions: unreconciledTransactions,
+      transactions: transactions,
       totalCount: transactions.length,
-      unreconciledCount: unreconciledTransactions.length
+      unreconciledCount: unreconciledCount,
+      includeAll: includeAll,
+      dateFilter: dateFilter,
+      note: transactions.length === 0
+        ? includeAll
+          ? 'No coded bank transactions found in the last 6 months.'
+          : 'No unreconciled coded bank transactions found. Note: This shows coded transactions that haven\'t been reconciled to bank statement lines. The actual bank feed items you see in Xero\'s reconciliation screen are not available via the API.'
+        : undefined
     })
   } catch (error: any) {
     console.error('Error fetching bank transactions:', error)

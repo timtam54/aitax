@@ -1,7 +1,7 @@
 "use client"
 
 import { X, ExternalLink, Copy, CheckCircle, Eye, EyeOff, AlertCircle } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import ModalWrapper from "@/components/modal-wrapper"
 
 interface XeroHelpPopupProps {
@@ -20,9 +20,16 @@ export default function XeroHelpPopup({handleXeroConnect, clientid, secret, isOp
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [showSecret, setShowSecret] = useState(false)
+  const [appUrl, setAppUrl] = useState<string>("")
+  const [redirectUri, setRedirectUri] = useState<string>("")
 
-  const redirectUri = process.env.NEXT_PUBLIC_XERO_REDIR || "http://localhost:3001/api/xero/callback"
-  const appUrl = redirectUri.replace('/api/xero/callback', '')
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentUrl = window.location.origin
+      setAppUrl(currentUrl)
+      setRedirectUri(`${currentUrl}/api/xero/callback`)
+    }
+  }, [])
 
   const getMaskedSecret = (secret: string) => {
     if (!secret || secret.length < 4) return secret

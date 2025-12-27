@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getXeroClient, getActiveTenantId } from '@/lib/xero'
 import OpenAI from 'openai'
 
+const COMPANY_ID = 1
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
@@ -10,11 +12,7 @@ const openai = new OpenAI({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { companyId, statementLine, existingTransactions } = body
-
-    if (!companyId) {
-      return NextResponse.json({ error: 'companyId is required' }, { status: 400 })
-    }
+    const { statementLine, existingTransactions } = body
 
     // Use AI to suggest matches
     const prompt = `You are a bank reconciliation assistant. Analyze this bank statement line and suggest the best matching transaction from the list.
@@ -70,26 +68,21 @@ Respond with JSON only:
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
-    const { companyId, transactionId, action } = body
+    const { transactionId, action } = body
 
-    if (!companyId || !transactionId) {
+    if (!transactionId) {
       return NextResponse.json(
-        { error: 'companyId and transactionId are required' },
+        { error: 'transactionId is required' },
         { status: 400 }
       )
     }
 
-    const companyIdNum = parseInt(companyId)
-    if (isNaN(companyIdNum)) {
-      return NextResponse.json({ error: 'Invalid companyId' }, { status: 400 })
-    }
-
-    const xero = await getXeroClient(companyIdNum)
+    const xero = await getXeroClient(COMPANY_ID)
     if (!xero) {
       return NextResponse.json({ error: 'Failed to get Xero client' }, { status: 401 })
     }
 
-    const tenantId = await getActiveTenantId(companyIdNum)
+    const tenantId = await getActiveTenantId(COMPANY_ID)
     if (!tenantId) {
       return NextResponse.json({ error: 'No active Xero tenant' }, { status: 401 })
     }

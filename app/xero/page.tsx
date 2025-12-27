@@ -37,18 +37,34 @@ export default function XeroPage() {
   })
   const [showHelpPopup, setShowHelpPopup] = useState(false)
 
-  const companyId = typeof window !== "undefined" ? localStorage.getItem("companyid") : null
-
   useEffect(() => {
-    if (companyId) {
-      fetchToken()
-    } else {
-      // If no company ID, create a default one for demo
-      localStorage.setItem("companyid", "1")
-      setIsLoading(false)
-      createNewToken()
+    fetchToken()
+  }, [])
+
+  // Fetch tenant info if we have an access token but no tenant info
+  useEffect(() => {
+    const fetchTenantInfo = async () => {
+      if (token?.access_token && !token?.tenantid) {
+        try {
+          const response = await fetch('/api/xero/connections')
+          const data = await response.json()
+
+          if (response.ok && data.tenant) {
+            setToken(prev => prev ? {
+              ...prev,
+              tenantid: data.tenant.tenantId,
+              tenantname: data.tenant.tenantName,
+              tenanttype: data.tenant.tenantType,
+            } : prev)
+          }
+        } catch (error) {
+          console.error('Error fetching tenant info:', error)
+        }
+      }
     }
-  }, [companyId])
+
+    fetchTenantInfo()
+  }, [token?.access_token, token?.tenantid])
 
   const createNewToken = () => {
     const newToken: Token = {
@@ -62,7 +78,7 @@ export default function XeroPage() {
       tenantname: null,
       tenanttype: null,
       jit: null,
-      companyid: Number.parseInt(companyId || "1"),
+      companyid: 1,
     }
     setToken(newToken)
     setFormData({
@@ -79,7 +95,7 @@ export default function XeroPage() {
       setIsLoading(true)
       setError(null)
 
-      const response = await fetch(`/api/token/${companyId}`)
+      const response = await fetch(`/api/token`)
 
       if (response.ok) {
         const data = await response.json()
@@ -161,6 +177,47 @@ export default function XeroPage() {
     }))
   }
 
+  const handleDisconnect = async () => {
+    try {
+      setIsSaving(true)
+      setError(null)
+
+      // Clear the access token and refresh token
+      const response = await fetch("/api/token", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          access_token: null,
+          refresh_token: null,
+          tenant_id: null,
+          tenant_name: null,
+          tenant_type: null,
+          expires_at: null,
+        }),
+      })
+
+      if (response.ok) {
+        setToken(prev => prev ? {
+          ...prev,
+          access_token: null,
+          refresh_token: null,
+          tenantid: null,
+          tenantname: null,
+          tenanttype: null,
+        } : prev)
+        setSuccess("Disconnected from Xero. Click 'Connect to Xero' to reconnect with updated permissions.")
+      } else {
+        throw new Error("Failed to disconnect")
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disconnect")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const handleXeroConnect = (clientIdOverride?: string | null) => {
     const clientId = clientIdOverride || formData.client_id || token?.client_id
 
@@ -169,9 +226,12 @@ export default function XeroPage() {
       return
     }
 
-    const redirectUri = process.env.NEXT_PUBLIC_XERO_REDIR || "http://localhost:3001/api/xero/callback"
+    // Use current browser URL for redirect (works on any domain)
+    const redirectUri = typeof window !== 'undefined'
+      ? `${window.location.origin}/api/xero/callback`
+      : "http://localhost:3001/api/xero/callback"
     const scopes = token?.scope || DEFAULT_SCOPE
-    const state = companyId || "1"
+    const state = "1"
 
     const authUrl = `https://login.xero.com/identity/connect/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&state=${state}&scope=${encodeURIComponent(scopes)}`
 
@@ -435,14 +495,54 @@ export default function XeroPage() {
                               <p className="text-sm text-green-600">Your integration is active</p>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleXeroConnect()}
-                            className="inline-flex items-center space-x-2 px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors shadow-sm"
-                          >
-                            <CheckCircle className="h-5 w-5" />
-                            <span>Reconnect to Xero</span>
-                            <ExternalLink className="h-4 w-4" />
-                          </button>
+
+                          {/* Token Details */}
+                          <div className="p-4 bg-gray-100 border border-gray-300 rounded-lg space-y-2">
+                            <h4 className="text-sm font-semibold text-gray-800">Token Details</h4>
+                            <div className="text-xs font-mono space-y-1">
+                              <div>
+                                <span className="text-gray-600">Access Token:</span>
+                                <span className="ml-2 text-gray-800">
+                                  {token.access_token ? `${token.access_token.substring(0, 20)}...${token.access_token.substring(token.access_token.length - 10)}` : "None"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Refresh Token:</span>
+                                <span className="ml-2 text-gray-800">
+                                  {token.refresh_token ? `${token.refresh_token.substring(0, 20)}...${token.refresh_token.substring(token.refresh_token.length - 10)}` : "None"}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Tenant ID:</span>
+                                <span className="ml-2 text-gray-800">{token.tenantid || "None"}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Tenant Name:</span>
+                                <span className="ml-2 text-gray-800">{token.tenantname || "None"}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-600">Expires:</span>
+                                <span className="ml-2 text-gray-800">{token.expires_at ? new Date(token.expires_at).toLocaleString() : (token.dtetme ? new Date(token.dtetme).toLocaleString() : "Unknown")}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => handleXeroConnect()}
+                              className="inline-flex items-center space-x-2 px-6 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors shadow-sm"
+                            >
+                              <CheckCircle className="h-5 w-5" />
+                              <span>Reconnect to Xero</span>
+                              <ExternalLink className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={handleDisconnect}
+                              className="inline-flex items-center space-x-2 px-6 py-3 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors shadow-sm"
+                            >
+                              <span>Disconnect</span>
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div className="space-y-4">
@@ -461,6 +561,26 @@ export default function XeroPage() {
                             <span>Connect to Xero</span>
                             <ExternalLink className="h-4 w-4" />
                           </button>
+
+                          {/* Troubleshooting Section */}
+                          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                            <h4 className="text-sm font-medium text-gray-900 mb-2">Connection Failed?</h4>
+                            <p className="text-sm text-gray-600 mb-3">
+                              If your connection failed, you may need to disconnect the app from Xero first, then try connecting again.
+                            </p>
+                            <a
+                              href="https://go.xero.com/Settings/ConnectedApps"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                              <span>Disconnect from Xero Connected Apps</span>
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                            <p className="text-xs text-gray-500 mt-2">
+                              Find this app in the list and click &quot;Disconnect&quot;, then return here and click &quot;Connect to Xero&quot; again.
+                            </p>
+                          </div>
                         </div>
                       )}
                     </div>

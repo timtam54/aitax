@@ -1,29 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+const COMPANY_ID = 1
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { companyId, client_id, client_secret, scope } = body
-
-    if (!companyId) {
-      return NextResponse.json(
-        { error: 'Company ID is required' },
-        { status: 400 }
-      )
-    }
+    const { client_id, client_secret, scope } = body
 
     // Check if company exists, create if not
     let company = await prisma.company.findUnique({
-      where: { id: companyId }
+      where: { id: COMPANY_ID }
     })
 
     if (!company) {
       company = await prisma.company.create({
         data: {
-          id: companyId,
-          name: `Company ${companyId}`,
-          email: `company${companyId}@placeholder.local`
+          id: COMPANY_ID,
+          name: `Company ${COMPANY_ID}`,
+          email: `company${COMPANY_ID}@placeholder.local`
         }
       })
     }
@@ -31,10 +26,10 @@ export async function POST(request: NextRequest) {
     // Create new token
     const token = await prisma.xeroToken.create({
       data: {
-        companyId,
+        companyId: COMPANY_ID,
         clientId: client_id,
         clientSecret: client_secret,
-        scope: scope || 'payroll.employees payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access',
+        scope: scope || 'payroll.employees payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts accounting.reports.read payroll.settings bankfeeds offline_access',
       }
     })
 
@@ -58,7 +53,6 @@ export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      companyId,
       client_id,
       client_secret,
       access_token,
@@ -69,13 +63,6 @@ export async function PUT(request: NextRequest) {
       scope,
       expires_at
     } = body
-
-    if (!companyId) {
-      return NextResponse.json(
-        { error: 'Company ID is required' },
-        { status: 400 }
-      )
-    }
 
     const updateData: any = {}
 
@@ -90,7 +77,7 @@ export async function PUT(request: NextRequest) {
     if (expires_at !== undefined) updateData.expiresAt = new Date(expires_at)
 
     const token = await prisma.xeroToken.update({
-      where: { companyId },
+      where: { companyId: COMPANY_ID },
       data: updateData
     })
 
@@ -108,6 +95,42 @@ export async function PUT(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error updating token:', error)
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function GET() {
+  try {
+    const token = await prisma.xeroToken.findUnique({
+      where: { companyId: COMPANY_ID }
+    })
+
+    if (!token) {
+      return NextResponse.json(
+        { error: 'Token not found' },
+        { status: 404 }
+      )
+    }
+
+    // Return token data (sensitive fields handled by client)
+    return NextResponse.json({
+      id: token.id,
+      companyId: token.companyId,
+      client_id: token.clientId,
+      client_secret: token.clientSecret,
+      access_token: token.accessToken,
+      refresh_token: token.refreshToken,
+      tenant_id: token.tenantId,
+      tenant_name: token.tenantName,
+      tenant_type: token.tenantType,
+      scope: token.scope,
+      expires_at: token.expiresAt,
+    })
+  } catch (error) {
+    console.error('Error fetching token:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

@@ -1,10 +1,12 @@
 import { XeroClient, TokenSet } from 'xero-node'
 import { prisma } from './prisma'
 
+const COMPANY_ID = 1
+
 /**
  * Get Xero client for a company with automatic token refresh
  */
-export async function getXeroClient(companyId: number): Promise<XeroClient | null> {
+export async function getXeroClient(companyId: number = COMPANY_ID): Promise<XeroClient | null> {
   try {
     const token = await prisma.xeroToken.findUnique({
       where: { companyId }
@@ -36,17 +38,27 @@ export async function getXeroClient(companyId: number): Promise<XeroClient | nul
 
       if (shouldRefresh) {
         console.log('Token expiring soon, refreshing...')
-        const newTokenSet = await xero.refreshToken()
+        try {
+          const newTokenSet = await xero.refreshToken()
 
-        // Update token in database
-        await prisma.xeroToken.update({
-          where: { companyId },
-          data: {
-            accessToken: newTokenSet.access_token,
-            refreshToken: newTokenSet.refresh_token,
-            expiresAt: newTokenSet.expires_at ? new Date(newTokenSet.expires_at * 1000) : null,
+          if (newTokenSet && newTokenSet.access_token) {
+            // Update token in database
+            await prisma.xeroToken.update({
+              where: { companyId },
+              data: {
+                accessToken: newTokenSet.access_token,
+                refreshToken: newTokenSet.refresh_token,
+                expiresAt: newTokenSet.expires_at ? new Date(newTokenSet.expires_at * 1000) : null,
+              }
+            })
+            console.log('Token refreshed successfully')
+          } else {
+            console.error('Token refresh returned invalid data')
           }
-        })
+        } catch (refreshError) {
+          console.error('Failed to refresh token:', refreshError)
+          // Continue with existing token - it might still work
+        }
       }
     }
 
@@ -60,7 +72,7 @@ export async function getXeroClient(companyId: number): Promise<XeroClient | nul
 /**
  * Get active tenant ID for a company
  */
-export async function getActiveTenantId(companyId: number): Promise<string | null> {
+export async function getActiveTenantId(companyId: number = COMPANY_ID): Promise<string | null> {
   const token = await prisma.xeroToken.findUnique({
     where: { companyId }
   })
