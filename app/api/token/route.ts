@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
         companyId: COMPANY_ID,
         clientId: client_id,
         clientSecret: client_secret,
-        scope: scope || 'payroll.employees payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access',
+        scope: scope || 'payroll.employees payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts accounting.reports.read payroll.settings offline_access',
       }
     })
 
