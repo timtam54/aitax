@@ -53,6 +53,7 @@ function PayrunContent() {
   const transactionAmount = parseFloat(searchParams.get("amount") || "0")
   const transactionDate = searchParams.get("date")
   const transactionReference = searchParams.get("reference")
+  const importId = searchParams.get("importId") // ID from imported transactions table
 
   const [employees, setEmployees] = useState<Employee[]>([])
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null)
@@ -155,7 +156,7 @@ function PayrunContent() {
       }
 
       // Mark the original bank transaction as reconciled
-      if (transactionId) {
+      if (transactionId && !importId) {
         try {
           await fetch("/api/xero/reconcile", {
             method: "PUT",
@@ -168,6 +169,24 @@ function PayrunContent() {
         } catch (reconcileErr) {
           console.error("Failed to mark transaction as reconciled:", reconcileErr)
           // Don't fail the whole operation if reconcile fails
+        }
+      }
+
+      // Mark imported transaction as payrun created
+      if (importId) {
+        try {
+          await fetch("/api/import/transactions", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: parseInt(importId),
+              status: "payrun_created",
+              accountCode: "PAYRUN",
+              accountName: `Payrun - ${selectedEmployee.fullName}`,
+            }),
+          })
+        } catch (importErr) {
+          console.error("Failed to update imported transaction:", importErr)
         }
       }
 
@@ -218,11 +237,11 @@ function PayrunContent() {
         <div className="mb-6">
           <div className="flex items-center gap-4 mb-2">
             <a
-              href="/reconcile"
+              href={importId ? "/import" : "/reconcile"}
               className="inline-flex items-center text-gray-600 hover:text-gray-900"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
-              Back to Reconciliation
+              {importId ? "Back to Import" : "Back to Reconciliation"}
             </a>
           </div>
           <h1 className="text-2xl font-semibold text-gray-900">Create Payrun</h1>
@@ -434,6 +453,24 @@ function PayrunContent() {
                         <p className="text-xs text-gray-500 text-center">
                           Review and post the payrun in Xero to complete the process.
                         </p>
+
+                        {importId && (
+                          <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                            <h4 className="text-sm font-medium text-amber-800 mb-2">Next Step: Match in Xero</h4>
+                            <p className="text-xs text-amber-700 mb-3">
+                              After posting the payrun, go to Xero Bank Reconciliation to match the bank transaction to this payrun.
+                            </p>
+                            <a
+                              href="https://go.xero.com/Bank/BankAccounts.aspx"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 px-3 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              Go to Bank Reconciliation
+                            </a>
+                          </div>
+                        )}
                       </>
                     )}
                   </div>

@@ -12,7 +12,8 @@ import {
   ExternalLink,
   AlertCircle,
   Clock,
-  ArrowRight
+  ArrowRight,
+  Upload
 } from "lucide-react"
 
 interface Task {
@@ -48,11 +49,12 @@ export default function Dashboard() {
     },
     {
       id: 3,
-      title: "Code All Transactions",
-      description: "Use AI to automatically categorize and code all unmatched transactions with appropriate accounts",
+      title: "Import & Code Transactions",
+      description: "Upload Xero Statement Lines CSV, use AI to suggest account codes, and push coded transactions to Xero",
       status: "pending",
-      icon: <Code className="h-6 w-6" />,
-      actionLabel: "Code Transactions"
+      icon: <Upload className="h-6 w-6" />,
+      actionLabel: "Import Transactions",
+      externalLink: "/import"
     },
     {
       id: 4,
@@ -263,9 +265,9 @@ Note: Ensure you have run the Activity Statement reports in Xero (Task 5) before
                   <div className="flex-shrink-0">
                     <button
                       onClick={() => handleTaskAction(task)}
-                      disabled={task.id > 1 && tasks[task.id - 2].status !== "completed"}
+                      disabled={task.id > 1 && task.id !== 3 && tasks[task.id - 2].status !== "completed"}
                       className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all duration-200 ${
-                        task.id > 1 && tasks[task.id - 2].status !== "completed"
+                        task.id > 1 && task.id !== 3 && tasks[task.id - 2].status !== "completed"
                           ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                           : task.status === "completed"
                           ? "bg-green-100 text-green-700 hover:bg-green-200 border-2 border-green-300"
@@ -279,7 +281,7 @@ Note: Ensure you have run the Activity Statement reports in Xero (Task 5) before
                 </div>
 
                 {/* Locked Message */}
-                {task.id > 1 && tasks[task.id - 2].status !== "completed" && (
+                {task.id > 1 && task.id !== 3 && tasks[task.id - 2].status !== "completed" && (
                   <div className="mt-4 flex items-center gap-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-md p-3">
                     <AlertCircle className="h-4 w-4 flex-shrink-0" />
                     <span>

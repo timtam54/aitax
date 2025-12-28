@@ -6,7 +6,7 @@ import AdaptiveLayout from "@/components/adaptive-layout"
 import XeroHelpPopup from "@/components/xero-help-popup"
 import type Token from "@/interface/token"
 
-const DEFAULT_SCOPE = "payroll.employees payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access"
+const DEFAULT_SCOPE = "payroll.employees payroll.payruns payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access"
 
 // Xero Client ID is typically 32 chars (UUID format), Client Secret is 40+ chars
 // This validates that credentials look like valid Xero credentials, not other data
@@ -525,6 +525,26 @@ export default function XeroPage() {
                                 <span className="ml-2 text-gray-800">{token.expires_at ? new Date(token.expires_at).toLocaleString() : (token.dtetme ? new Date(token.dtetme).toLocaleString() : "Unknown")}</span>
                               </div>
                             </div>
+                          </div>
+
+                          {/* Export Uncoded Statement Lines */}
+                          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <h4 className="text-sm font-semibold text-blue-800 mb-2">Export Unreconciled Transactions</h4>
+                            <p className="text-sm text-blue-700 mb-3">
+                              Export your bank feed statement lines from Xero to CSV for processing:
+                            </p>
+                            <a
+                              href="https://go.xero.com/Banking/StatementLines/Offline/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+                            >
+                              <span>Export Uncoded Statement Lines</span>
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                            <p className="text-xs text-blue-600 mt-2">
+                              Select your bank account, date range, then click &quot;Export&quot; → CSV
+                            </p>
                           </div>
 
                           <div className="flex items-center gap-3">

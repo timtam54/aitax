@@ -46,11 +46,43 @@ model XeroToken {
   tenantType    String?   @map("tenant_type")
 
   // Token metadata
-  scope         String    @default("payroll.employees payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access")
+  scope         String    @default("payroll.employees payroll.payruns payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access")
   expiresAt     DateTime? @map("expires_at")
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@map("xero_tokens")
+}
+
+// Imported Bank Transactions (from Xero Statement Lines CSV)
+model ImportBankUnreconciled {
+  id                Int       @id @default(autoincrement())
+  companyId         Int       @map("company_id")
+
+  // Bank account info
+  bankAccount       String    @map("bank_account")
+  bankAccountNumber String    @map("bank_account_number")
+
+  // Transaction details
+  date              DateTime
+  payee             String
+  particulars       String?
+  spent             Decimal?  @db.Decimal(10, 2)
+  received          Decimal?  @db.Decimal(10, 2)
+  tax               String?
+  comments          String?
+
+  // Coding fields
+  accountCode       String?   @map("account_code")
+  accountName       String?   @map("account_name")
+
+  // Status
+  status            String    @default("pending") // pending, coded, pushed, skipped
+  xeroTransactionId String?   @map("xero_transaction_id")
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("import_bank_unreconciled")
 }
