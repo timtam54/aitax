@@ -196,10 +196,11 @@ export async function POST(request: NextRequest) {
     // If createPayrun is true, actually create the pay run in Xero
     if (createPayrun) {
       // Step 1: Create the PayRun
-      const payRunPayload = {
+      // Note: Xero AU Payroll API expects an array of pay runs
+      const payRunPayload = [{
         PayrollCalendarID: calendarId,
         PayRunStatus: 'DRAFT',
-      }
+      }]
 
       console.log('Creating PayRun with payload:', JSON.stringify(payRunPayload, null, 2))
 
