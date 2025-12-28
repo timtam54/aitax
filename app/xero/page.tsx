@@ -6,7 +6,7 @@ import AdaptiveLayout from "@/components/adaptive-layout"
 import XeroHelpPopup from "@/components/xero-help-popup"
 import type Token from "@/interface/token"
 
-const DEFAULT_SCOPE = "payroll.employees payroll.payruns payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access"
+const DEFAULT_SCOPE = "payroll.employees payroll.payruns payroll.payslip payroll.timesheets accounting.settings accounting.attachments accounting.transactions accounting.contacts payroll.settings offline_access"
 
 // Xero Client ID is typically 32 chars (UUID format), Client Secret is 40+ chars
 // This validates that credentials look like valid Xero credentials, not other data

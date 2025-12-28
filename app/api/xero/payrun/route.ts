@@ -188,13 +188,57 @@ export async function POST(request: NextRequest) {
 
     // Get the earnings rate ID from employee or use default
     const earningsRateId = employee.OrdinaryEarningsRateID
-    const calendarId = payrollCalendarId || employee.PayrollCalendarID
+    let calendarId = payrollCalendarId || employee.PayrollCalendarID
 
     // Calculate pay period end date
     const endDate = payPeriodEndDate || getNextPayPeriodEnd(calendarId, auth)
 
     // If createPayrun is true, actually create the pay run in Xero
     if (createPayrun) {
+      // Check if the calendar is outdated (dates in the past)
+      const calendarOutdated = await isCalendarOutdated(calendarId, auth)
+      if (calendarOutdated) {
+        console.log('Calendar is outdated, creating new calendar with current dates...')
+        const newCalendarId = await createCurrentPayrollCalendar(auth)
+        if (newCalendarId) {
+          console.log('Created new calendar:', newCalendarId)
+
+          // Update employee to use the new calendar
+          const updateEmployeePayload = [{
+            EmployeeID: employeeId,
+            PayrollCalendarID: newCalendarId,
+          }]
+
+          console.log('Updating employee with new calendar:', JSON.stringify(updateEmployeePayload, null, 2))
+
+          const updateEmpResponse = await fetch(
+            'https://api.xero.com/payroll.xro/1.0/Employees',
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${auth.accessToken}`,
+                'Xero-Tenant-Id': auth.tenantId,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: JSON.stringify(updateEmployeePayload)
+            }
+          )
+
+          const updateEmpText = await updateEmpResponse.text()
+          console.log('Employee update response:', updateEmpResponse.status, updateEmpText)
+
+          if (updateEmpResponse.ok) {
+            calendarId = newCalendarId
+            console.log('Employee assigned to new calendar successfully')
+          } else {
+            console.error('Failed to update employee calendar, using old calendar')
+          }
+        } else {
+          console.error('Failed to create new calendar, using old one')
+        }
+      }
+
       // Step 1: Create the PayRun
       // Note: Xero AU Payroll API expects an array of pay runs
       const payRunPayload = [{
@@ -238,18 +282,47 @@ export async function POST(request: NextRequest) {
         }, { status: 500 })
       }
 
-      // Step 2: Find the payslip for this employee and update earnings
-      const payslip = payRun.Payslips?.find((p: any) => p.EmployeeID === employeeId)
+      // Step 2: Fetch the full PayRun details to get Payslips
+      // The creation response doesn't include Payslips array, so we need to GET it
+      console.log('Fetching PayRun details for:', payRun.PayRunID)
+
+      const payRunDetailsResponse = await fetch(
+        `https://api.xero.com/payroll.xro/1.0/PayRuns/${payRun.PayRunID}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${auth.accessToken}`,
+            'Xero-Tenant-Id': auth.tenantId,
+            'Accept': 'application/json',
+          }
+        }
+      )
+
+      let payslip = null
+      if (payRunDetailsResponse.ok) {
+        const payRunDetails = await payRunDetailsResponse.json()
+        const fullPayRun = payRunDetails.PayRuns?.[0]
+        console.log('PayRun details - Payslips count:', fullPayRun?.Payslips?.length)
+        payslip = fullPayRun?.Payslips?.find((p: any) => p.EmployeeID === employeeId)
+        if (payslip) {
+          console.log('Found payslip for employee:', payslip.PayslipID)
+        }
+      } else {
+        console.error('Failed to fetch PayRun details:', await payRunDetailsResponse.text())
+      }
 
       if (payslip) {
         // Update the payslip with the calculated earnings
+        // For single payslip update by ID, Xero expects a single Payslip object (not array)
         const updatePayslipPayload = {
-          PayslipID: payslip.PayslipID,
-          EarningsLines: [{
-            EarningsRateID: earningsRateId,
-            NumberOfUnits: 1,
-            RatePerUnit: estimatedEarnings,
-          }]
+          Payslip: {
+            PayslipID: payslip.PayslipID,
+            EmployeeID: employeeId,
+            EarningsLines: [{
+              EarningsRateID: earningsRateId,
+              NumberOfUnits: 1,
+              RatePerUnit: estimatedEarnings,
+            }]
+          }
         }
 
         console.log('Updating Payslip with payload:', JSON.stringify(updatePayslipPayload, null, 2))
@@ -337,6 +410,97 @@ function getNextFriday(): string {
   const nextFriday = new Date(today)
   nextFriday.setDate(today.getDate() + daysUntilFriday)
   return nextFriday.toISOString().split('T')[0]
+}
+
+// Create a NEW PayrollCalendar with current dates (Xero doesn't allow updating calendar dates)
+async function createCurrentPayrollCalendar(auth: { accessToken: string, tenantId: string }): Promise<string | null> {
+  try {
+    // Get most recent Monday as start date
+    const today = new Date()
+    const dayOfWeek = today.getDay()
+    const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+    const startDate = new Date(today)
+    startDate.setDate(today.getDate() + daysToMonday)
+
+    // Payment date is the Friday of the same week
+    const paymentDate = new Date(startDate)
+    paymentDate.setDate(startDate.getDate() + 4) // Friday of same week
+
+    const calendarPayload = [{
+      Name: `Weekly - ${startDate.toISOString().split('T')[0]}`,
+      CalendarType: 'WEEKLY',
+      StartDate: startDate.toISOString().split('T')[0],
+      PaymentDate: paymentDate.toISOString().split('T')[0],
+    }]
+
+    console.log('Creating NEW PayrollCalendar:', JSON.stringify(calendarPayload, null, 2))
+
+    const response = await fetch(
+      'https://api.xero.com/payroll.xro/1.0/PayrollCalendars',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${auth.accessToken}`,
+          'Xero-Tenant-Id': auth.tenantId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify(calendarPayload)
+      }
+    )
+
+    const responseText = await response.text()
+    console.log('PayrollCalendar creation response:', response.status, responseText)
+
+    if (response.ok) {
+      const data = JSON.parse(responseText)
+      return data.PayrollCalendars?.[0]?.PayrollCalendarID || null
+    }
+
+    return null
+  } catch (error) {
+    console.error('Error creating PayrollCalendar:', error)
+    return null
+  }
+}
+
+// Check if a calendar's next pay period is outdated
+async function isCalendarOutdated(calendarId: string, auth: { accessToken: string, tenantId: string }): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `https://api.xero.com/payroll.xro/1.0/PayrollCalendars/${calendarId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${auth.accessToken}`,
+          'Xero-Tenant-Id': auth.tenantId,
+          'Accept': 'application/json',
+        }
+      }
+    )
+
+    if (!response.ok) return true
+
+    const data = await response.json()
+    const calendar = data.PayrollCalendars?.[0]
+
+    if (!calendar?.PaymentDate) return true
+
+    // Parse Xero date format /Date(timestamp)/
+    const match = calendar.PaymentDate.match(/\/Date\((\d+)([+-]\d+)?\)\//)
+    if (match) {
+      const paymentDate = new Date(parseInt(match[1]))
+      const today = new Date()
+      // If payment date is more than 30 days in the past, calendar is outdated
+      const thirtyDaysAgo = new Date(today)
+      thirtyDaysAgo.setDate(today.getDate() - 30)
+      return paymentDate < thirtyDaysAgo
+    }
+
+    return false
+  } catch (error) {
+    console.error('Error checking calendar:', error)
+    return true
+  }
 }
 
 async function getNextPayPeriodEnd(calendarId: string, auth: { accessToken: string, tenantId: string }): Promise<string> {
