@@ -563,6 +563,23 @@ export default function XeroPage() {
                               <span>Disconnect</span>
                             </button>
                           </div>
+
+                          {/* Disconnect from Xero Connected Apps - needed when changing scopes */}
+                          <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                            <h4 className="text-sm font-medium text-amber-900 mb-2">Need to update permissions?</h4>
+                            <p className="text-sm text-amber-700 mb-3">
+                              To reconnect with new permissions (like payroll.payruns), first disconnect the app from Xero, then click &quot;Reconnect to Xero&quot; above.
+                            </p>
+                            <a
+                              href="https://go.xero.com/Settings/ConnectedApps"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition-colors"
+                            >
+                              <span>Disconnect from Xero Connected Apps</span>
+                              <ExternalLink className="h-4 w-4" />
+                            </a>
+                          </div>
                         </div>
                       ) : (
                         <div className="space-y-4">
